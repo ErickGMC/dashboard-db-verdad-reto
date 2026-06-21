@@ -1,0 +1,70 @@
+import { GoogleGenAI, Type, Schema } from '@google/genai';
+import { NextResponse } from 'next/server';
+
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+const SYSTEM_PROMPT = `Eres un editor experto y guionista de juegos de "Verdad o Reto".
+Tu objetivo es tomar preguntas o retos crudos, corregir su ortografía y gramática, y mejorar su semántica para que suenen más naturales, divertidas y coherentes para un juego casual de fiesta.
+Devuelve el resultado estrictamente en el formato JSON solicitado.
+No cambies completamente la idea principal, solo haz que suene mejor.`;
+
+const responseSchema: Schema = {
+  type: Type.ARRAY,
+  description: "Lista de preguntas originales y sus correcciones.",
+  items: {
+    type: Type.OBJECT,
+    properties: {
+      original: {
+        type: Type.STRING,
+        description: "La pregunta o reto original tal como la escribió el usuario.",
+      },
+      corrected: {
+        type: Type.STRING,
+        description: "La pregunta o reto corregido, mejorado gramatical y semánticamente.",
+      },
+    },
+    required: ["original", "corrected"],
+  },
+};
+
+export async function POST(req: Request) {
+  try {
+    const { text } = await req.json();
+
+    if (!text || typeof text !== 'string') {
+      return NextResponse.json({ error: 'Por favor envía texto válido.' }, { status: 400 });
+    }
+
+    // Dividimos por saltos de línea para pasarlas limpias
+    const questions = text.split('\n').map((q) => q.trim()).filter(Boolean);
+
+    if (questions.length === 0) {
+      return NextResponse.json({ error: 'No hay preguntas válidas en el texto.' }, { status: 400 });
+    }
+
+    const prompt = `Corrige y mejora las siguientes preguntas de Verdad o Reto:\n\n${questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        systemInstruction: SYSTEM_PROMPT,
+        responseMimeType: "application/json",
+        responseSchema: responseSchema,
+      }
+    });
+
+    const resultText = response.text;
+    if (!resultText) {
+       throw new Error('Gemini devolvió una respuesta vacía');
+    }
+
+    const parsedResult = JSON.parse(resultText);
+
+    return NextResponse.json({ result: parsedResult });
+
+  } catch (error: any) {
+    console.error('Error procesando preguntas:', error);
+    return NextResponse.json({ error: error.message || 'Error interno en el servidor.' }, { status: 500 });
+  }
+}
