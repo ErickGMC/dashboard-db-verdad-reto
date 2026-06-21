@@ -100,7 +100,12 @@ export default function Home() {
       setResults((prev) => [...newResults, ...prev]);
       setRawText(""); // Limpiar input después de procesar
     } catch (error: any) {
-      showModal("Error al Procesar", error.message || "Hubo un error al procesar las preguntas con la IA.", "error");
+      let finalMsg = error?.message || "Hubo un error al procesar las preguntas con la IA.";
+      if (typeof finalMsg === 'object') finalMsg = JSON.stringify(finalMsg);
+      if (finalMsg.includes('429') || finalMsg.includes('quota') || finalMsg.includes('RESOURCE_EXHAUSTED') || finalMsg.length > 150) {
+        finalMsg = "Has superado el límite de uso gratuito de la Inteligencia Artificial por este minuto. Por favor, espera un instante e inténtalo de nuevo.";
+      }
+      showModal("Error al Procesar", finalMsg, "error");
       console.error(error);
     } finally {
       setIsProcessing(false);
@@ -278,7 +283,12 @@ export default function Home() {
     } catch (err: any) {
       console.error(err);
       setIsSavingId(null);
-      showModal("Error al Guardar", err.message, "error");
+      let finalMsg = err?.message || "Ocurrió un error inesperado al guardar.";
+      if (typeof finalMsg === 'object') finalMsg = JSON.stringify(finalMsg);
+      if (finalMsg.includes('429') || finalMsg.includes('quota') || finalMsg.includes('RESOURCE_EXHAUSTED') || finalMsg.length > 150) {
+        finalMsg = "Has superado el límite de uso gratuito de la Inteligencia Artificial por este minuto. Por favor, espera un instante e inténtalo de nuevo.";
+      }
+      showModal("Error al Guardar", finalMsg, "error");
     }
   };
 
