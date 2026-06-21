@@ -54,20 +54,36 @@ export async function POST(req: Request) {
 
     const prompt = `Corrige y mejora las siguientes preguntas de Verdad o Reto:\n\n${questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        systemInstruction: SYSTEM_PROMPT,
-        responseMimeType: "application/json",
-        responseSchema: responseSchema,
+    let response;
+    let retries = 3;
+    let lastError;
+
+    while (retries > 0) {
+      try {
+        response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: prompt,
+          config: {
+            systemInstruction: SYSTEM_PROMPT,
+            responseMimeType: "application/json",
+            responseSchema: responseSchema,
+          }
+        });
+        if (response && response.text) break;
+      } catch (err: any) {
+        lastError = err;
+        retries--;
+        if (retries === 0) break;
+        // Esperar 1.5 segundos antes de reintentar
+        await new Promise(resolve => setTimeout(resolve, 1500));
       }
-    });
+    }
+
+    if (!response || !response.text) {
+       throw lastError || new Error('Gemini devolvió una respuesta vacía después de varios reintentos');
+    }
 
     const resultText = response.text;
-    if (!resultText) {
-       throw new Error('Gemini devolvió una respuesta vacía');
-    }
 
     const parsedResult = JSON.parse(resultText);
 

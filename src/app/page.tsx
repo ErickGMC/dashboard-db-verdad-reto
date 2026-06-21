@@ -77,7 +77,10 @@ export default function Home() {
         body: JSON.stringify({ text: rawText }),
       });
 
-      if (!res.ok) throw new Error("Error en la API de procesamiento");
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.error || "Fallo en la comunicación con el servidor");
+      }
       
       const data = await res.json();
       const newResults: ProcessedQuestion[] = data.result.map((item: any) => ({
