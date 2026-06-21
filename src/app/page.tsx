@@ -79,7 +79,14 @@ export default function Home() {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => null);
-        throw new Error(errData?.error || "Fallo en la comunicación con el servidor");
+        const errorContent = errData?.error;
+        const errStr = typeof errorContent === 'object' ? JSON.stringify(errorContent) : String(errorContent || "");
+        
+        if (errStr.includes('429') || errStr.includes('quota') || errStr.includes('RESOURCE_EXHAUSTED')) {
+          throw new Error("Has superado el límite gratuito de Inteligencia Artificial de este minuto. Por favor, espera un instante y vuelve a intentarlo.");
+        }
+        
+        throw new Error(errStr || "Fallo en la comunicación con el servidor");
       }
       
       const data = await res.json();
@@ -156,8 +163,15 @@ export default function Home() {
       });
       
       if (!embRes.ok) {
-        const errData = await embRes.json();
-        throw new Error(errData.error || "Error generando embedding en servidor");
+        const errData = await embRes.json().catch(() => null);
+        const errorContent = errData?.error;
+        const errStr = typeof errorContent === 'object' ? JSON.stringify(errorContent) : String(errorContent || "");
+        
+        if (errStr.includes('429') || errStr.includes('quota') || errStr.includes('RESOURCE_EXHAUSTED')) {
+          throw new Error("Has superado el límite gratuito de Inteligencia Artificial de este minuto. Por favor, espera un instante y vuelve a intentarlo.");
+        }
+        
+        throw new Error(errStr || "Error generando embedding en servidor");
       }
       
       const { embedding } = await embRes.json();
