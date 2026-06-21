@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, ReactNode } from "react";
 import { useAuth } from "@/lib/contexts/AuthContext";
 import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
@@ -17,7 +17,7 @@ interface ProcessedQuestion {
 interface ModalState {
   isOpen: boolean;
   title: string;
-  message: string;
+  message: ReactNode;
   type: "success" | "error" | "warning" | "confirm";
   onConfirm?: () => void;
   onCancel?: () => void;
@@ -48,7 +48,7 @@ export default function Home() {
     type: "success"
   });
 
-  const showModal = (title: string, message: string, type: "success" | "error" | "warning" | "confirm", extraProps?: Partial<ModalState>) => {
+  const showModal = (title: string, message: ReactNode, type: "success" | "error" | "warning" | "confirm", extraProps?: Partial<ModalState>) => {
     setModal({ isOpen: true, title, message, type, ...extraProps });
   };
 
@@ -194,20 +194,55 @@ export default function Home() {
         // Mayor al 90%: Eliminar automáticamente
         showModal(
           "Idea Descartada Automáticamente", 
-          `Se eliminó automáticamente por tener una similitud del ${(highestSimilarity * 100).toFixed(1)}% (supera el 90%).\n\nPregunta existente:\n"${duplicateText}"`, 
+          (
+            <div className="flex flex-col gap-3">
+              <p className="text-slate-300">
+                Se eliminó automáticamente por tener una similitud del <span className="text-red-400 font-bold">{(highestSimilarity * 100).toFixed(1)}%</span> (supera el 90%).
+              </p>
+              <div className="bg-slate-950 border border-red-500/30 p-3 rounded-lg mt-2">
+                <p className="text-xs text-red-500 uppercase tracking-wide font-bold mb-1">Pregunta Existente:</p>
+                <p className="text-slate-200 italic">"{duplicateText}"</p>
+              </div>
+            </div>
+          ),
           "error"
         );
         setResults(prev => prev.filter(r => r.id !== id));
         return; 
       } else {
         // Hasta 90%: Mostrar al usuario para que decida
-        let similarityMsg = highestSimilarity > 0 
-          ? `Similitud detectada: ${(highestSimilarity * 100).toFixed(1)}%.\nSe parece a: "${duplicateText}"`
-          : `Es una idea completamente original (0% similitud).`;
+        let similarityContent: ReactNode;
+        
+        if (highestSimilarity > 0) {
+          similarityContent = (
+            <div className="flex flex-col gap-3">
+              <p className="text-slate-300">
+                Similitud detectada: <span className="text-amber-400 font-bold">{(highestSimilarity * 100).toFixed(1)}%</span>
+              </p>
+              <div className="grid grid-cols-1 gap-3 mt-1">
+                <div className="bg-slate-950/80 border border-amber-500/30 p-3.5 rounded-xl shadow-inner">
+                  <p className="text-xs text-amber-500 uppercase tracking-wider font-bold mb-1.5 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span> Pregunta Similar en BD:
+                  </p>
+                  <p className="text-slate-200">"{duplicateText}"</p>
+                </div>
+                <div className="bg-slate-950/80 border border-emerald-500/30 p-3.5 rounded-xl shadow-inner">
+                  <p className="text-xs text-emerald-500 uppercase tracking-wider font-bold mb-1.5 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Tu Pregunta Sugerida:
+                  </p>
+                  <p className="text-slate-200">"{itemToApprove.corrected}"</p>
+                </div>
+              </div>
+              <p className="text-slate-300 mt-2 font-medium">¿Qué deseas hacer con esta idea?</p>
+            </div>
+          );
+        } else {
+          similarityContent = <p>Es una idea completamente original (0% similitud).<br/><br/>¿Deseas guardarla?</p>;
+        }
 
         showModal(
           "Revisión de Similitud",
-          `${similarityMsg}\n\n¿Qué deseas hacer con esta idea?`,
+          similarityContent,
           "confirm",
           {
             confirmText: "Guardar",
