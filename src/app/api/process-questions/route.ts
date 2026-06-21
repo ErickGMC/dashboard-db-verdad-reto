@@ -92,12 +92,15 @@ export async function POST(req: Request) {
   } catch (error: any) {
     let errorMessage = lastError?.message || error?.message || 'Error desconocido';
     
+    // Forzamos que sea un string por si el SDK devuelve un objeto anidado
+    const errorStr = String(errorMessage);
+
     // Traducción de errores técnicos a mensajes amigables
-    if (errorMessage.includes('429') || errorMessage.includes('quota') || errorMessage.includes('RESOURCE_EXHAUSTED')) {
+    if (errorStr.includes('429') || errorStr.includes('quota') || errorStr.includes('RESOURCE_EXHAUSTED')) {
       errorMessage = 'Has superado el límite de velocidad de la Inteligencia Artificial. Por favor, espera un minuto y vuelve a intentarlo.';
-    } else if (errorMessage.includes('fetch failed')) {
+    } else if (errorStr.includes('fetch failed')) {
       errorMessage = 'Hubo un pequeño corte de conexión con los servidores de IA. Inténtalo de nuevo.';
-    } else if (errorMessage.length > 100) {
+    } else if (errorStr.length > 100) {
       // Si el error sigue siendo un JSON enorme y feo, lo resumimos
       errorMessage = 'Ocurrió un error inesperado con la IA. Por favor, intenta de nuevo más tarde.';
     }
