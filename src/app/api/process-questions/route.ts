@@ -5,6 +5,12 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 const SYSTEM_PROMPT = `Eres un editor experto y guionista de juegos de "Verdad o Reto".
 Tu objetivo es tomar preguntas o retos crudos, corregir su ortografía y gramática, y mejorar su semántica para que suenen más naturales, divertidas y coherentes para un juego casual de fiesta.
+Además, debes CLASIFICAR la pregunta en una de las siguientes categorías exactas:
+- "tl": Verdad Leve (preguntas personales suaves, curiosidades, anécdotas divertidas).
+- "tp": Verdad Picante (preguntas íntimas, sexuales, secretos oscuros, romances intensos).
+- "dl": Reto Leve (acciones físicas sencillas, bromas inocentes, pruebas de habilidad).
+- "dp": Reto Picante (acciones subidas de tono, contacto físico atrevido, retos muy vergonzosos).
+
 Devuelve el resultado estrictamente en el formato JSON solicitado.
 No cambies completamente la idea principal, solo haz que suene mejor.`;
 
@@ -22,8 +28,12 @@ const responseSchema: Schema = {
         type: Type.STRING,
         description: "La pregunta o reto corregido, mejorado gramatical y semánticamente.",
       },
+      category: {
+        type: Type.STRING,
+        description: "El código exacto de la categoría ('tl', 'tp', 'dl' o 'dp').",
+      },
     },
-    required: ["original", "corrected"],
+    required: ["original", "corrected", "category"],
   },
 };
 
