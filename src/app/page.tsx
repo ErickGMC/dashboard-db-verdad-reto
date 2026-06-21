@@ -190,17 +190,17 @@ export default function Home() {
 
       setIsSavingId(null); // Detener el spinner para mostrar el modal
 
-      if (highestSimilarity > 0.85) {
-        // Mayor al 85%: Eliminar automáticamente
+      if (highestSimilarity > 0.90) {
+        // Mayor al 90%: Eliminar automáticamente
         showModal(
           "Idea Descartada Automáticamente", 
-          `Se eliminó automáticamente por tener una similitud del ${(highestSimilarity * 100).toFixed(1)}% (supera el 85%).\n\nPregunta existente:\n"${duplicateText}"`, 
+          `Se eliminó automáticamente por tener una similitud del ${(highestSimilarity * 100).toFixed(1)}% (supera el 90%).\n\nPregunta existente:\n"${duplicateText}"`, 
           "error"
         );
         setResults(prev => prev.filter(r => r.id !== id));
         return; 
       } else {
-        // Hasta 85%: Mostrar al usuario para que decida
+        // Hasta 90%: Mostrar al usuario para que decida
         let similarityMsg = highestSimilarity > 0 
           ? `Similitud detectada: ${(highestSimilarity * 100).toFixed(1)}%.\nSe parece a: "${duplicateText}"`
           : `Es una idea completamente original (0% similitud).`;
