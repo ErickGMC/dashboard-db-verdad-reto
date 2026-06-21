@@ -90,7 +90,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ result: parsedResult });
 
   } catch (error: any) {
-    console.error('Error procesando preguntas:', error);
-    return NextResponse.json({ error: error.message || 'Error interno en el servidor.' }, { status: 500 });
+    let errorMessage = lastError?.message || error?.message || 'Error desconocido';
+    
+    // Traducción de errores técnicos a mensajes amigables
+    if (errorMessage.includes('429') || errorMessage.includes('quota') || errorMessage.includes('RESOURCE_EXHAUSTED')) {
+      errorMessage = 'Has superado el límite de velocidad de la Inteligencia Artificial. Por favor, espera un minuto y vuelve a intentarlo.';
+    } else if (errorMessage.includes('fetch failed')) {
+      errorMessage = 'Hubo un pequeño corte de conexión con los servidores de IA. Inténtalo de nuevo.';
+    } else if (errorMessage.length > 100) {
+      // Si el error sigue siendo un JSON enorme y feo, lo resumimos
+      errorMessage = 'Ocurrió un error inesperado con la IA. Por favor, intenta de nuevo más tarde.';
+    }
+
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
