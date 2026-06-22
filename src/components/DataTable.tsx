@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { collection, query, orderBy, limit, getDocs, startAfter, deleteDoc, doc, updateDoc, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Database, Edit2, Trash2, ChevronLeft, ChevronRight, Loader2, CheckCircle2, X, LayoutGrid, List, Filter } from "lucide-react";
+import { Database, Edit2, Trash2, ChevronLeft, ChevronRight, Loader2, CheckCircle2, X, LayoutGrid, List, Filter, Search } from "lucide-react";
 
 interface QuestionData {
   _docId: string;
@@ -23,6 +23,7 @@ export default function DataTable({ showModal }: { showModal: any }) {
   
   const [viewMode, setViewMode] = useState<"table" | "grid">("grid");
   const [categoryFilter, setCategoryFilter] = useState<"all" | "tl" | "tp" | "dl" | "dp">("all");
+  const [searchTerm, setSearchTerm] = useState("");
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ text: "", type: "", level: "" });
@@ -85,6 +86,18 @@ export default function DataTable({ showModal }: { showModal: any }) {
     fetchQuestions(null, categoryFilter);
   }, [categoryFilter]);
 
+  // Asegurar que en móviles siempre se use "grid"
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 768) {
+        setViewMode("grid");
+      }
+    };
+    window.addEventListener("resize", handleResize);
+    handleResize(); // Initial check
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   const handleNextPage = () => {
     if (!lastVisible) return;
     setPageHistory([...pageHistory, questions[0]]); 
@@ -129,56 +142,76 @@ export default function DataTable({ showModal }: { showModal: any }) {
     }
   };
 
+  // Filtrado local por búsqueda
+  const filteredQuestions = questions.filter(q => 
+    q.text.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    q.id?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   return (
-    <div className="bg-slate-900/50 backdrop-blur-xl border border-slate-800/60 rounded-3xl p-5 sm:p-8 shadow-2xl flex flex-col h-full animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="bg-slate-900/50 backdrop-blur-xl border border-slate-800/60 rounded-3xl p-4 sm:p-8 shadow-2xl flex flex-col h-full animate-in fade-in slide-in-from-bottom-4 duration-500">
       
       {/* Header y Controles */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-400">
+        <div className="flex items-center gap-3 w-full lg:w-auto">
+          <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-400 hidden sm:block">
             <Database className="w-6 h-6" />
           </div>
-          <div>
-            <h2 className="text-xl font-bold text-white">Revisión de Base de Datos</h2>
-            <p className="text-sm text-slate-400">Lee, edita y filtra preguntas una por una.</p>
+          <div className="flex-grow">
+            <h2 className="text-lg sm:text-xl font-bold text-white">Revisión de Base de Datos</h2>
+            <p className="text-xs sm:text-sm text-slate-400">Lee, edita y filtra preguntas.</p>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Filtro de Categoría */}
-          <div className="flex items-center bg-slate-950/80 border border-slate-700/60 rounded-xl p-1">
-            <Filter className="w-4 h-4 text-slate-400 ml-2 mr-1" />
-            <select 
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value as any)}
-              className="bg-transparent text-slate-200 text-sm focus:outline-none p-2 cursor-pointer"
-            >
-              <option value="all">Todas las Categorías</option>
-              <option value="tl">Pregunta Leve (tl)</option>
-              <option value="tp">Pregunta Picante (tp)</option>
-              <option value="dl">Reto Leve (dl)</option>
-              <option value="dp">Reto Picante (dp)</option>
-            </select>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full lg:w-auto">
+          {/* Buscador Local */}
+          <div className="relative flex-grow sm:flex-grow-0">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <Search className="w-4 h-4 text-slate-500" />
+            </div>
+            <input
+              type="text"
+              placeholder="Buscar en esta página..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full sm:w-64 pl-9 pr-4 py-2 bg-slate-950/80 border border-slate-700/60 rounded-xl text-sm text-slate-200 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all"
+            />
           </div>
 
-          {/* Toggle de Vista */}
-          <div className="flex items-center bg-slate-950/80 border border-slate-700/60 rounded-xl p-1">
-            <button 
-              onClick={() => setViewMode("grid")}
-              className={`p-2 rounded-lg flex items-center gap-2 transition-colors ${viewMode === "grid" ? "bg-emerald-500/20 text-emerald-400" : "text-slate-400 hover:text-slate-200"}`}
-              title="Vista de Tarjetas"
-            >
-              <LayoutGrid className="w-4 h-4" />
-              <span className="text-sm font-medium hidden sm:inline">Tarjetas</span>
-            </button>
-            <button 
-              onClick={() => setViewMode("table")}
-              className={`p-2 rounded-lg flex items-center gap-2 transition-colors ${viewMode === "table" ? "bg-emerald-500/20 text-emerald-400" : "text-slate-400 hover:text-slate-200"}`}
-              title="Vista de Tabla"
-            >
-              <List className="w-4 h-4" />
-              <span className="text-sm font-medium hidden sm:inline">Tabla</span>
-            </button>
+          {/* Filtro de Categoría */}
+          <div className="flex items-center justify-between sm:justify-start bg-slate-950/80 border border-slate-700/60 rounded-xl p-1">
+            <div className="flex items-center">
+              <Filter className="w-4 h-4 text-slate-400 ml-2 mr-1" />
+              <select 
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value as any)}
+                className="bg-transparent text-slate-200 text-sm focus:outline-none p-1.5 sm:p-2 cursor-pointer w-full sm:w-auto"
+              >
+                <option value="all">Todas las Categorías</option>
+                <option value="tl">Verdad Leve (tl)</option>
+                <option value="tp">Verdad Picante (tp)</option>
+                <option value="dl">Reto Leve (dl)</option>
+                <option value="dp">Reto Picante (dp)</option>
+              </select>
+            </div>
+
+            {/* Toggle de Vista (Oculto en móviles) */}
+            <div className="hidden md:flex items-center ml-2 border-l border-slate-700/60 pl-2">
+              <button 
+                onClick={() => setViewMode("grid")}
+                className={`p-1.5 rounded-lg transition-colors ${viewMode === "grid" ? "bg-emerald-500/20 text-emerald-400" : "text-slate-400 hover:text-slate-200"}`}
+                title="Vista de Tarjetas"
+              >
+                <LayoutGrid className="w-4 h-4" />
+              </button>
+              <button 
+                onClick={() => setViewMode("table")}
+                className={`p-1.5 rounded-lg transition-colors ${viewMode === "table" ? "bg-emerald-500/20 text-emerald-400" : "text-slate-400 hover:text-slate-200"}`}
+                title="Vista de Tabla"
+              >
+                <List className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -191,20 +224,20 @@ export default function DataTable({ showModal }: { showModal: any }) {
           </div>
         )}
 
-        {questions.length === 0 && !loading && (
+        {filteredQuestions.length === 0 && !loading && (
           <div className="flex flex-col items-center justify-center py-20 text-slate-500">
             <Database className="w-12 h-12 mb-4 opacity-20" />
-            <p>No hay preguntas en esta categoría.</p>
+            <p>{searchTerm ? "No hay coincidencias para tu búsqueda." : "No hay preguntas en esta categoría."}</p>
           </div>
         )}
 
         {/* Vista GRID / TARJETAS */}
-        {viewMode === "grid" && !loading && questions.length > 0 && (
+        {viewMode === "grid" && !loading && filteredQuestions.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {questions.map((q) => (
+            {filteredQuestions.map((q) => (
               <div key={q._docId} className="bg-slate-950/80 border border-slate-800/80 hover:border-slate-700 rounded-2xl p-5 flex flex-col gap-4 shadow-lg transition-all group">
                 <div className="flex justify-between items-start">
-                  <span className="font-mono text-xs text-slate-500 bg-slate-900 px-2 py-1 rounded-md">{q.id}</span>
+                  <span className="font-mono text-xs text-slate-500 bg-slate-900 px-2 py-1 rounded-md">{q.id || "ID-Auto"}</span>
                   <div className="flex gap-2">
                     <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${q.type === 'truth' ? 'bg-sky-500/10 text-sky-400 border-sky-500/20' : 'bg-orange-500/10 text-orange-400 border-orange-500/20'}`}>
                       {q.type}
@@ -220,7 +253,7 @@ export default function DataTable({ showModal }: { showModal: any }) {
                     <textarea 
                       value={editForm.text} 
                       onChange={e => setEditForm({...editForm, text: e.target.value})} 
-                      className="w-full h-full min-h-[6rem] bg-slate-900 border border-emerald-500/50 rounded-xl p-3 text-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500 resize-none text-lg"
+                      className="w-full h-full min-h-[6rem] bg-slate-900 border border-emerald-500/50 rounded-xl p-3 text-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500 resize-none text-base sm:text-lg"
                     />
                     <div className="flex gap-2">
                       <select value={editForm.type} onChange={e => setEditForm({...editForm, type: e.target.value})} className="bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs flex-1 text-slate-300">
@@ -244,13 +277,13 @@ export default function DataTable({ showModal }: { showModal: any }) {
                 <div className="pt-3 border-t border-slate-800/50 flex justify-end gap-2">
                   {editingId === q._docId ? (
                     <>
-                      <button onClick={() => setEditingId(null)} className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl flex items-center justify-center gap-2 transition-colors"><X className="w-4 h-4"/> Cancelar</button>
-                      <button onClick={() => saveEdit(q._docId)} className="flex-1 py-2 bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 rounded-xl flex items-center justify-center gap-2 transition-colors font-medium"><CheckCircle2 className="w-4 h-4"/> Guardar</button>
+                      <button onClick={() => setEditingId(null)} className="flex-1 py-2 sm:py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl flex items-center justify-center gap-2 transition-colors text-sm"><X className="w-4 h-4"/> Cancelar</button>
+                      <button onClick={() => saveEdit(q._docId)} className="flex-1 py-2 sm:py-2.5 bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 rounded-xl flex items-center justify-center gap-2 transition-colors font-medium text-sm"><CheckCircle2 className="w-4 h-4"/> Guardar</button>
                     </>
                   ) : (
                     <>
-                      <button onClick={() => startEdit(q)} className="p-2.5 text-slate-400 hover:text-emerald-400 hover:bg-emerald-400/10 rounded-xl transition-colors"><Edit2 className="w-4 h-4"/></button>
-                      <button onClick={() => handleDelete(q._docId)} className="p-2.5 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition-colors"><Trash2 className="w-4 h-4"/></button>
+                      <button onClick={() => startEdit(q)} className="p-3 text-slate-400 hover:text-emerald-400 hover:bg-emerald-400/10 rounded-xl transition-colors"><Edit2 className="w-5 h-5"/></button>
+                      <button onClick={() => handleDelete(q._docId)} className="p-3 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition-colors"><Trash2 className="w-5 h-5"/></button>
                     </>
                   )}
                 </div>
@@ -259,9 +292,9 @@ export default function DataTable({ showModal }: { showModal: any }) {
           </div>
         )}
 
-        {/* Vista TABLA */}
-        {viewMode === "table" && questions.length > 0 && (
-          <div className="overflow-x-auto">
+        {/* Vista TABLA (Solo en PC) */}
+        {viewMode === "table" && filteredQuestions.length > 0 && (
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-left text-sm text-slate-300">
               <thead className="text-xs uppercase bg-slate-900/80 text-slate-400 sticky top-0 border-b border-slate-800/80">
                 <tr>
@@ -273,9 +306,9 @@ export default function DataTable({ showModal }: { showModal: any }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/50">
-                {questions.map((q) => (
+                {filteredQuestions.map((q) => (
                   <tr key={q._docId} className="hover:bg-slate-800/30 transition-colors">
-                    <td className="px-6 py-4 font-mono text-xs text-slate-500">{q.id}</td>
+                    <td className="px-6 py-4 font-mono text-xs text-slate-500">{q.id || "ID-Auto"}</td>
                     {editingId === q._docId ? (
                       <>
                         <td className="px-6 py-4">
@@ -330,13 +363,13 @@ export default function DataTable({ showModal }: { showModal: any }) {
       </div>
 
       {/* Paginación */}
-      <div className="flex items-center justify-between mt-6">
-        <span className="text-sm text-slate-500 font-medium">Página {page + 1}</span>
-        <div className="flex gap-2">
-          <button onClick={handlePrevPage} disabled={page === 0} className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl disabled:opacity-50 flex items-center gap-2 transition-colors font-medium">
+      <div className="flex flex-col sm:flex-row items-center justify-between mt-6 gap-4">
+        <span className="text-sm text-slate-500 font-medium">Página {page + 1} • {filteredQuestions.length} visibles</span>
+        <div className="flex gap-2 w-full sm:w-auto">
+          <button onClick={handlePrevPage} disabled={page === 0} className="flex-1 sm:flex-none px-5 py-3 sm:py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl disabled:opacity-50 flex items-center justify-center gap-2 transition-colors font-medium">
             <ChevronLeft className="w-4 h-4"/> Anterior
           </button>
-          <button onClick={handleNextPage} disabled={questions.length < pageSize} className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl disabled:opacity-50 flex items-center gap-2 transition-colors font-medium">
+          <button onClick={handleNextPage} disabled={questions.length < pageSize} className="flex-1 sm:flex-none px-5 py-3 sm:py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl disabled:opacity-50 flex items-center justify-center gap-2 transition-colors font-medium">
             Siguiente <ChevronRight className="w-4 h-4"/>
           </button>
         </div>

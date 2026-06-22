@@ -45,8 +45,8 @@ export default function AIEntryForm({ userUid, showModal, closeModal }: AIEntryF
       if (!res.ok) {
         const errData = await res.json().catch(() => null);
         const errStr = typeof errData?.error === 'object' ? JSON.stringify(errData.error) : String(errData?.error || "");
-        if (errStr.includes('429') || errStr.includes('quota')) {
-          throw new Error("Límite gratuito de IA superado. Espera un instante.");
+        if (errStr.includes('429') || errStr.includes('quota') || errStr.includes('límite')) {
+          throw new Error("Límite de velocidad de IA superado. Espera un instante.");
         }
         throw new Error(errStr || "Fallo en la comunicación con el servidor");
       }
@@ -68,13 +68,15 @@ export default function AIEntryForm({ userUid, showModal, closeModal }: AIEntryF
     }
   };
 
-  const proceedToSave = async (id: string, itemToApprove: ProcessedQuestion, embedding: number[], maxCatNumber: number) => {
+  const proceedToSave = async (id: string, itemToApprove: ProcessedQuestion) => {
     try {
       setIsSavingId(id);
       const catPrefix = itemToApprove.category;
-      const newNumber = maxCatNumber === -1 ? 0 : maxCatNumber + 1;
-      const newDocId = `${catPrefix}_${newNumber}`;
       const categoryData = CATEGORY_MAP[itemToApprove.category as keyof typeof CATEGORY_MAP];
+
+      // O(1) Save con ID Aleatorio + Prefijo para filtros
+      const tempRef = doc(collection(db, "questions"));
+      const newDocId = `${catPrefix}_${tempRef.id}`;
 
       await setDoc(doc(db, "questions", newDocId), {
         id: newDocId,
@@ -82,12 +84,12 @@ export default function AIEntryForm({ userUid, showModal, closeModal }: AIEntryF
         originalText: itemToApprove.original,
         type: categoryData.type,
         level: categoryData.level,
-        embedding: embedding,
+        embedding: [], // Ya no generamos embeddings costosos
         createdAt: serverTimestamp(),
         createdBy: userUid,
       });
 
-      showModal("¡Idea Guardada!", "La pregunta fue guardada con éxito en Firestore.", "success");
+      showModal("¡Idea Guardada!", "La pregunta fue guardada con éxito al instante.", "success");
       setResults(prev => prev.filter(r => r.id !== id));
     } catch (err: any) {
       showModal("Error al Guardar", err.message, "error");
@@ -103,32 +105,24 @@ export default function AIEntryForm({ userUid, showModal, closeModal }: AIEntryF
     setIsSavingId(id);
 
     try {
-      const embRes = await fetch("/api/generate-embedding", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: itemToApprove.corrected }),
-      });
-      
-      if (!embRes.ok) throw new Error("Error generando embedding en servidor");
-      const { embedding } = await embRes.json();
-
+      // O(1) Exact Similarity Check (Evita timeouts de base de datos completa)
       const simRes = await fetch("/api/check-similarity", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ embedding, category: itemToApprove.category })
+        body: JSON.stringify({ text: itemToApprove.corrected })
       });
       
-      if (!simRes.ok) throw new Error("Error comprobando similitud");
-      const { highestSimilarity, duplicateText, maxCatNumber } = await simRes.json();
+      if (!simRes.ok) throw new Error("Error comprobando similitud en BD");
+      const { highestSimilarity, duplicateText } = await simRes.json();
 
       setIsSavingId(null);
 
-      if (highestSimilarity > 0.90) {
+      if (highestSimilarity > 0.99) { // Coincidencia exacta
         showModal(
-          "Idea Descartada Automáticamente", 
+          "Pregunta Descartada Automáticamente", 
           (
             <div className="flex flex-col gap-3">
-              <p className="text-slate-300">Se eliminó automáticamente por similitud del <span className="text-red-400 font-bold">{(highestSimilarity * 100).toFixed(1)}%</span>.</p>
+              <p className="text-slate-300">Se detectó que esta pregunta exacta ya existe en la base de datos.</p>
               <div className="bg-slate-950 border border-red-500/30 p-3 rounded-lg mt-2">
                 <p className="text-xs text-red-500 uppercase font-bold mb-1">Existente:</p>
                 <p className="text-slate-200 italic">"{duplicateText}"</p>
@@ -138,40 +132,8 @@ export default function AIEntryForm({ userUid, showModal, closeModal }: AIEntryF
         );
         setResults(prev => prev.filter(r => r.id !== id));
       } else {
-        let similarityContent: ReactNode;
-        if (highestSimilarity > 0) {
-          similarityContent = (
-            <div className="flex flex-col gap-3">
-              <p className="text-slate-300">Similitud detectada: <span className="text-amber-400 font-bold">{(highestSimilarity * 100).toFixed(1)}%</span></p>
-              <div className="grid grid-cols-1 gap-3 mt-1">
-                <div className="bg-slate-950/80 border border-amber-500/30 p-3.5 rounded-xl">
-                  <p className="text-xs text-amber-500 uppercase font-bold mb-1.5 flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span> BD:</p>
-                  <p className="text-slate-200">"{duplicateText}"</p>
-                </div>
-                <div className="bg-slate-950/80 border border-emerald-500/30 p-3.5 rounded-xl">
-                  <p className="text-xs text-emerald-500 uppercase font-bold mb-1.5 flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Tuya:</p>
-                  <p className="text-slate-200">"{itemToApprove.corrected}"</p>
-                </div>
-              </div>
-              <p className="text-slate-300 mt-2 font-medium">¿Qué deseas hacer?</p>
-            </div>
-          );
-        } else {
-          similarityContent = <p>Idea original (0% similitud).<br/>¿Deseas guardarla?</p>;
-        }
-
-        showModal("Revisión de Similitud", similarityContent, "confirm", {
-          confirmText: "Guardar",
-          cancelText: "Eliminar",
-          onConfirm: () => {
-            closeModal();
-            proceedToSave(id, itemToApprove, embedding, maxCatNumber);
-          },
-          onCancel: () => {
-            setResults(prev => prev.filter(r => r.id !== id));
-            closeModal();
-          }
-        });
+        // Al no usar embeddings, siempre será 0 si no es exacta.
+        proceedToSave(id, itemToApprove);
       }
     } catch (err: any) {
       setIsSavingId(null);
