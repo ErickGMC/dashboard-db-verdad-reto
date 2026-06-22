@@ -4,16 +4,16 @@ import { NextResponse } from 'next/server';
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 export async function POST(req: Request) {
+  let vector;
+  let retries = 3;
+  let lastError: any;
+
   try {
     const { text } = await req.json();
 
     if (!text || typeof text !== 'string') {
       return NextResponse.json({ error: 'Texto inválido para embedding' }, { status: 400 });
     }
-
-    let vector;
-    let retries = 3;
-    let lastError;
 
     while (retries > 0) {
       try {

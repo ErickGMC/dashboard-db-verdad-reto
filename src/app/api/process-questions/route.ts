@@ -38,6 +38,10 @@ const responseSchema: Schema = {
 };
 
 export async function POST(req: Request) {
+  let response;
+  let retries = 3;
+  let lastError: any;
+
   try {
     const { text } = await req.json();
 
@@ -46,17 +50,13 @@ export async function POST(req: Request) {
     }
 
     // Dividimos por saltos de línea para pasarlas limpias
-    const questions = text.split('\n').map((q) => q.trim()).filter(Boolean);
+    const questions = text.split('\n').map((q: string) => q.trim()).filter(Boolean);
 
     if (questions.length === 0) {
       return NextResponse.json({ error: 'No hay preguntas válidas en el texto.' }, { status: 400 });
     }
 
-    const prompt = `Corrige y mejora las siguientes preguntas de Verdad o Reto:\n\n${questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}`;
-
-    let response;
-    let retries = 3;
-    let lastError;
+    const prompt = `Corrige y mejora las siguientes preguntas de Verdad o Reto:\n\n${questions.map((q: string, i: number) => `${i + 1}. ${q}`).join('\n')}`;
 
     while (retries > 0) {
       try {

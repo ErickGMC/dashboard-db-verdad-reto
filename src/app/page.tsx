@@ -3,16 +3,13 @@
 import { useEffect, useState, ReactNode } from "react";
 import { useAuth } from "@/lib/contexts/AuthContext";
 import { useRouter } from "next/navigation";
-import { auth, db } from "@/lib/firebase";
+import { auth } from "@/lib/firebase";
 import { signOut } from "firebase/auth";
-import { collection, serverTimestamp, getDocs, doc, setDoc } from "firebase/firestore";
+import { Sparkles, PenLine, Database, LogOut } from "lucide-react";
 
-interface ProcessedQuestion {
-  id: string; // Generado en frontend para key
-  original: string;
-  corrected: string;
-  category: "tl" | "tp" | "dl" | "dp";
-}
+import AIEntryForm from "@/components/AIEntryForm";
+import ManualEntryForm from "@/components/ManualEntryForm";
+import DataTable from "@/components/DataTable";
 
 interface ModalState {
   isOpen: boolean;
@@ -25,21 +22,11 @@ interface ModalState {
   cancelText?: string;
 }
 
-const CATEGORY_MAP = {
-  tl: { type: "truth", level: "leve" },
-  tp: { type: "truth", level: "picante" },
-  dl: { type: "dare", level: "leve" },
-  dp: { type: "dare", level: "picante" },
-};
-
 export default function Home() {
   const { user, loading } = useAuth();
   const router = useRouter();
 
-  const [rawText, setRawText] = useState("");
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [isSavingId, setIsSavingId] = useState<string | null>(null);
-  const [results, setResults] = useState<ProcessedQuestion[]>([]);
+  const [activeTab, setActiveTab] = useState<"ai" | "manual" | "db">("ai");
   
   const [modal, setModal] = useState<ModalState>({
     isOpen: false,
@@ -63,260 +50,32 @@ export default function Home() {
   }, [user, loading, router]);
 
   if (loading || !user) {
-    return <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white">Cargando...</div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-950">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-purple-400 font-medium">Iniciando Dashboard...</p>
+        </div>
+      </div>
+    );
   }
 
-  const handleProcess = async () => {
-    if (!rawText.trim()) return;
-    setIsProcessing(true);
-    
-    try {
-      const res = await fetch("/api/process-questions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: rawText }),
-      });
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => null);
-        const errorContent = errData?.error;
-        const errStr = typeof errorContent === 'object' ? JSON.stringify(errorContent) : String(errorContent || "");
-        
-        if (errStr.includes('429') || errStr.includes('quota') || errStr.includes('RESOURCE_EXHAUSTED')) {
-          throw new Error("Has superado el límite gratuito de Inteligencia Artificial de este minuto. Por favor, espera un instante y vuelve a intentarlo.");
-        }
-        
-        throw new Error(errStr || "Fallo en la comunicación con el servidor");
-      }
-      
-      const data = await res.json();
-      const newResults: ProcessedQuestion[] = data.result.map((item: any) => ({
-        id: Math.random().toString(36).substring(7),
-        original: item.original,
-        corrected: item.corrected,
-        category: item.category || "tl", // Usar la categoría inferida por la IA
-      }));
-
-      setResults((prev) => [...newResults, ...prev]);
-      setRawText(""); // Limpiar input después de procesar
-    } catch (error: any) {
-      let finalMsg = error?.message || "Hubo un error al procesar las preguntas con la IA.";
-      if (typeof finalMsg === 'object') finalMsg = JSON.stringify(finalMsg);
-      if (finalMsg.includes('429') || finalMsg.includes('quota') || finalMsg.includes('RESOURCE_EXHAUSTED') || finalMsg.length > 150) {
-        finalMsg = "Has superado el límite de uso gratuito de la Inteligencia Artificial por este minuto. Por favor, espera un instante e inténtalo de nuevo.";
-      }
-      showModal("Error al Procesar", finalMsg, "error");
-      console.error(error);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleLogout = () => {
-    signOut(auth);
-  };
-
-  const handleUpdateCorrected = (id: string, newText: string) => {
-    setResults(results.map(r => r.id === id ? { ...r, corrected: newText } : r));
-  };
-
-  const handleCategoryChange = (id: string, newCategory: "tl" | "tp" | "dl" | "dp") => {
-    setResults(results.map(r => r.id === id ? { ...r, category: newCategory } : r));
-  };
-
-  const proceedToSave = async (id: string, itemToApprove: ProcessedQuestion, embedding: number[], maxCatNumber: number) => {
-    try {
-      setIsSavingId(id);
-      const catPrefix = itemToApprove.category;
-      const newNumber = maxCatNumber === -1 ? 0 : maxCatNumber + 1;
-      const newDocId = `${catPrefix}_${newNumber}`;
-      const categoryData = CATEGORY_MAP[itemToApprove.category];
-
-      await setDoc(doc(db, "questions", newDocId), {
-        id: newDocId,
-        text: itemToApprove.corrected,
-        originalText: itemToApprove.original,
-        type: categoryData.type,
-        level: categoryData.level,
-        embedding: embedding,
-        createdAt: serverTimestamp(),
-        createdBy: user?.uid,
-      });
-
-      showModal("¡Idea Guardada!", "La pregunta fue guardada con éxito en Firestore.", "success");
-      setResults(prev => prev.filter(r => r.id !== id));
-    } catch (err: any) {
-      console.error(err);
-      showModal("Error al Guardar", err.message, "error");
-    } finally {
-      setIsSavingId(null);
-    }
-  };
-
-  const handleApprove = async (id: string) => {
-    const itemToApprove = results.find(r => r.id === id);
-    if (!itemToApprove) return;
-
-    setIsSavingId(id);
-
-    try {
-      // 1. Generar Embedding
-      const embRes = await fetch("/api/generate-embedding", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: itemToApprove.corrected }),
-      });
-      
-      if (!embRes.ok) {
-        const errData = await embRes.json().catch(() => null);
-        const errorContent = errData?.error;
-        const errStr = typeof errorContent === 'object' ? JSON.stringify(errorContent) : String(errorContent || "");
-        
-        if (errStr.includes('429') || errStr.includes('quota') || errStr.includes('RESOURCE_EXHAUSTED')) {
-          throw new Error("Has superado el límite gratuito de Inteligencia Artificial de este minuto. Por favor, espera un instante y vuelve a intentarlo.");
-        }
-        
-        throw new Error(errStr || "Error generando embedding en servidor");
-      }
-      
-      const { embedding } = await embRes.json();
-
-      // 2. Búsqueda Vectorial (Calculada localmente)
-      const snapshot = await getDocs(collection(db, "questions"));
-      
-      let highestSimilarity = 0;
-      let duplicateText = "";
-      let maxCatNumber = -1;
-      const catPrefix = itemToApprove.category;
-
-      snapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        
-        // Revisar similitud
-        if (data.embedding && Array.isArray(data.embedding)) {
-          const similarity = cosineSimilarity(embedding, data.embedding);
-          if (similarity > highestSimilarity) {
-            highestSimilarity = similarity;
-            duplicateText = data.text;
-          }
-        }
-        
-        // Revisar max ID
-        if (data.id && data.id.startsWith(catPrefix + "_")) {
-          const numPart = parseInt(data.id.split("_")[1]);
-          if (!isNaN(numPart) && numPart > maxCatNumber) {
-            maxCatNumber = numPart;
-          }
-        }
-      });
-
-      setIsSavingId(null); // Detener el spinner para mostrar el modal
-
-      if (highestSimilarity > 0.90) {
-        // Mayor al 90%: Eliminar automáticamente
-        showModal(
-          "Idea Descartada Automáticamente", 
-          (
-            <div className="flex flex-col gap-3">
-              <p className="text-slate-300">
-                Se eliminó automáticamente por tener una similitud del <span className="text-red-400 font-bold">{(highestSimilarity * 100).toFixed(1)}%</span> (supera el 90%).
-              </p>
-              <div className="bg-slate-950 border border-red-500/30 p-3 rounded-lg mt-2">
-                <p className="text-xs text-red-500 uppercase tracking-wide font-bold mb-1">Pregunta Existente:</p>
-                <p className="text-slate-200 italic">"{duplicateText}"</p>
-              </div>
-            </div>
-          ),
-          "error"
-        );
-        setResults(prev => prev.filter(r => r.id !== id));
-        return; 
-      } else {
-        // Hasta 90%: Mostrar al usuario para que decida
-        let similarityContent: ReactNode;
-        
-        if (highestSimilarity > 0) {
-          similarityContent = (
-            <div className="flex flex-col gap-3">
-              <p className="text-slate-300">
-                Similitud detectada: <span className="text-amber-400 font-bold">{(highestSimilarity * 100).toFixed(1)}%</span>
-              </p>
-              <div className="grid grid-cols-1 gap-3 mt-1">
-                <div className="bg-slate-950/80 border border-amber-500/30 p-3.5 rounded-xl shadow-inner">
-                  <p className="text-xs text-amber-500 uppercase tracking-wider font-bold mb-1.5 flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span> Pregunta Similar en BD:
-                  </p>
-                  <p className="text-slate-200">"{duplicateText}"</p>
-                </div>
-                <div className="bg-slate-950/80 border border-emerald-500/30 p-3.5 rounded-xl shadow-inner">
-                  <p className="text-xs text-emerald-500 uppercase tracking-wider font-bold mb-1.5 flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Tu Pregunta Sugerida:
-                  </p>
-                  <p className="text-slate-200">"{itemToApprove.corrected}"</p>
-                </div>
-              </div>
-              <p className="text-slate-300 mt-2 font-medium">¿Qué deseas hacer con esta idea?</p>
-            </div>
-          );
-        } else {
-          similarityContent = <p>Es una idea completamente original (0% similitud).<br/><br/>¿Deseas guardarla?</p>;
-        }
-
-        showModal(
-          "Revisión de Similitud",
-          similarityContent,
-          "confirm",
-          {
-            confirmText: "Guardar",
-            cancelText: "Eliminar",
-            onConfirm: () => {
-              closeModal();
-              proceedToSave(id, itemToApprove, embedding, maxCatNumber);
-            },
-            onCancel: () => {
-              setResults(prev => prev.filter(r => r.id !== id));
-              closeModal();
-            }
-          }
-        );
-      }
-    } catch (err: any) {
-      console.error(err);
-      setIsSavingId(null);
-      let finalMsg = err?.message || "Ocurrió un error inesperado al guardar.";
-      if (typeof finalMsg === 'object') finalMsg = JSON.stringify(finalMsg);
-      if (finalMsg.includes('429') || finalMsg.includes('quota') || finalMsg.includes('RESOURCE_EXHAUSTED') || finalMsg.length > 150) {
-        finalMsg = "Has superado el límite de uso gratuito de la Inteligencia Artificial por este minuto. Por favor, espera un instante e inténtalo de nuevo.";
-      }
-      showModal("Error al Guardar", finalMsg, "error");
-    }
-  };
-
-  const cosineSimilarity = (vecA: number[], vecB: number[]) => {
-    let dotProduct = 0;
-    let normA = 0;
-    let normB = 0;
-    for (let i = 0; i < vecA.length; i++) {
-      dotProduct += vecA[i] * vecB[i];
-      normA += vecA[i] * vecA[i];
-      normB += vecB[i] * vecB[i];
-    }
-    if (normA === 0 || normB === 0) return 0;
-    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
-  };
-
-  const handleReject = (id: string) => {
-    setResults(results.filter(r => r.id !== id));
-  };
+  const handleLogout = () => signOut(auth);
 
   return (
-    <div className="min-h-screen bg-slate-950 p-4 sm:p-6 lg:p-8 font-sans">
+    <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-purple-500/30">
       
+      {/* Elementos de fondo decorativos */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-purple-600/10 blur-[120px]"></div>
+        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-blue-600/10 blur-[120px]"></div>
+      </div>
+
       {/* Modal Custom */}
       {modal.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-slate-700 shadow-2xl rounded-2xl w-full max-w-md overflow-hidden transform scale-100 animate-in zoom-in-95 duration-200">
-            <div className={`h-2 w-full ${
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-700 shadow-2xl rounded-3xl w-full max-w-md overflow-hidden transform scale-100 animate-in zoom-in-95 duration-200">
+            <div className={`h-1.5 w-full ${
               modal.type === 'success' ? 'bg-emerald-500' : 
               modal.type === 'error' ? 'bg-red-500' : 'bg-amber-500'
             }`} />
@@ -330,30 +89,21 @@ export default function Home() {
                 </div>
                 <h3 className="text-xl font-bold text-white">{modal.title}</h3>
               </div>
-              <p className="text-slate-300 text-sm whitespace-pre-wrap leading-relaxed">
+              <div className="text-slate-300 text-sm whitespace-pre-wrap leading-relaxed">
                 {modal.message}
-              </p>
+              </div>
               <div className="mt-8 flex justify-end gap-3">
                 {modal.type === 'confirm' ? (
                   <>
-                    <button 
-                      onClick={modal.onCancel || closeModal}
-                      className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-6 py-2 rounded-xl transition-colors font-medium border border-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-500"
-                    >
+                    <button onClick={modal.onCancel || closeModal} className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-6 py-2.5 rounded-xl transition-colors font-medium border border-slate-700 focus:ring-2 focus:ring-slate-500">
                       {modal.cancelText || "Cancelar"}
                     </button>
-                    <button 
-                      onClick={modal.onConfirm || closeModal}
-                      className="bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white px-6 py-2 rounded-xl transition-all font-medium border border-emerald-500/50 shadow-lg shadow-emerald-500/20 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    >
+                    <button onClick={modal.onConfirm || closeModal} className="bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white px-6 py-2.5 rounded-xl transition-all font-medium shadow-lg shadow-emerald-500/20 focus:ring-2 focus:ring-emerald-500">
                       {modal.confirmText || "Confirmar"}
                     </button>
                   </>
                 ) : (
-                  <button 
-                    onClick={closeModal}
-                    className="bg-slate-800 hover:bg-slate-700 text-white px-6 py-2 rounded-xl transition-colors font-medium border border-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-500"
-                  >
+                  <button onClick={closeModal} className="bg-slate-800 hover:bg-slate-700 text-white px-6 py-2.5 rounded-xl transition-colors font-medium border border-slate-700">
                     Entendido
                   </button>
                 )}
@@ -363,137 +113,43 @@ export default function Home() {
         </div>
       )}
 
-      <header className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center mb-6 sm:mb-10 bg-slate-900 border border-slate-800 p-4 sm:p-6 rounded-2xl shadow-lg gap-4">
-        <h1 className="text-xl sm:text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-500 text-center sm:text-left">
-          Panel IA: Verdad o Reto
-        </h1>
-        <div className="flex items-center gap-3 sm:gap-4 w-full sm:w-auto justify-between sm:justify-end">
-          <span className="text-slate-400 text-xs sm:text-sm truncate max-w-[150px] sm:max-w-none" title={user.email || ""}>
-            {user.email}
-          </span>
-          <button 
-            onClick={handleLogout}
-            className="text-xs sm:text-sm bg-slate-800 hover:bg-slate-700 text-white px-3 sm:px-4 py-2 rounded-lg transition-colors border border-slate-700 whitespace-nowrap"
-          >
-            Cerrar Sesión
-          </button>
-        </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
-        
-        {/* Columna Izquierda: Input */}
-        <div className="lg:col-span-4 bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl flex flex-col h-fit">
-          <h2 className="text-lg font-semibold text-white mb-2">Ingreso de Preguntas</h2>
-          <p className="text-sm text-slate-400 mb-5">
-            Pega múltiples preguntas separadas por saltos de línea. La IA las corregirá y mejorará.
-          </p>
-          <textarea
-            value={rawText}
-            onChange={(e) => setRawText(e.target.value)}
-            className="w-full h-48 sm:h-64 bg-slate-950/50 border border-slate-800 rounded-2xl p-4 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 resize-none mb-5 text-sm transition-all"
-            placeholder="Ejemplo:&#10;cuentanos un secretito tuyo&#10;toca la nariz de alguien"
-          />
-          <button
-            onClick={handleProcess}
-            disabled={isProcessing || !rawText.trim()}
-            className="w-full py-3.5 px-4 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-semibold rounded-2xl shadow-lg shadow-purple-500/25 transform transition-all hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center gap-2"
-          >
-            {isProcessing ? (
-              <span className="animate-pulse flex items-center gap-2">
-                <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                Procesando con IA...
+      {/* Header & Navegación */}
+      <div className="relative z-10 border-b border-slate-800/80 bg-slate-950/50 backdrop-blur-xl sticky top-0">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col sm:flex-row justify-between items-center py-4 gap-4">
+            <h1 className="text-xl sm:text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-500 tracking-tight">
+              Verdad o Reto Admin
+            </h1>
+            <div className="flex items-center gap-4 bg-slate-900/50 p-1.5 rounded-full border border-slate-800/80">
+              <span className="text-slate-400 text-xs sm:text-sm px-3 truncate max-w-[150px] sm:max-w-xs font-medium">
+                {user.email}
               </span>
-            ) : (
-              <span>✨ Mejorar con IA</span>
-            )}
-          </button>
+              <button onClick={handleLogout} className="flex items-center gap-2 text-xs sm:text-sm bg-slate-800 hover:bg-red-500/10 hover:text-red-400 text-slate-300 px-4 py-2 rounded-full transition-all border border-slate-700 hover:border-red-500/20">
+                <LogOut className="w-4 h-4" /> <span className="hidden sm:inline">Cerrar Sesión</span>
+              </button>
+            </div>
+          </div>
+          
+          {/* Tabs */}
+          <div className="flex gap-2 sm:gap-6 mt-2 overflow-x-auto no-scrollbar">
+            <button onClick={() => setActiveTab("ai")} className={`flex items-center gap-2 px-4 py-3 border-b-2 font-medium text-sm transition-all whitespace-nowrap ${activeTab === 'ai' ? 'border-purple-500 text-purple-400' : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'}`}>
+              <Sparkles className="w-4 h-4" /> Ingreso Mágico (IA)
+            </button>
+            <button onClick={() => setActiveTab("manual")} className={`flex items-center gap-2 px-4 py-3 border-b-2 font-medium text-sm transition-all whitespace-nowrap ${activeTab === 'manual' ? 'border-sky-500 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'}`}>
+              <PenLine className="w-4 h-4" /> Ingreso Manual
+            </button>
+            <button onClick={() => setActiveTab("db")} className={`flex items-center gap-2 px-4 py-3 border-b-2 font-medium text-sm transition-all whitespace-nowrap ${activeTab === 'db' ? 'border-emerald-500 text-emerald-400' : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'}`}>
+              <Database className="w-4 h-4" /> Base de Datos
+            </button>
+          </div>
         </div>
+      </div>
 
-        {/* Columna Derecha: Tabla de Verificación */}
-        <div className="lg:col-span-8">
-          {results.length === 0 ? (
-            <div className="h-full min-h-[300px] flex flex-col items-center justify-center bg-slate-900/40 border border-slate-800/60 rounded-3xl border-dashed p-8 sm:p-12 text-center">
-              <div className="text-5xl mb-5 opacity-80">🤖</div>
-              <h3 className="text-lg font-medium text-slate-300">Esperando preguntas...</h3>
-              <p className="text-slate-500 text-sm max-w-sm mt-2">
-                Las preguntas procesadas aparecerán aquí para tu revisión manual.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-5">
-              {results.map((item) => (
-                <div key={item.id} className={`bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-lg flex flex-col gap-5 transition-all ${isSavingId === item.id ? 'opacity-50 pointer-events-none scale-[0.98]' : 'hover:border-slate-700'}`}>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5 md:gap-6">
-                    {/* Bloque Original */}
-                    <div className="flex flex-col gap-4">
-                      <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-slate-500"></span> Original
-                        </label>
-                        <div className="bg-slate-950/50 border border-slate-800/80 rounded-xl p-4 text-slate-400 text-sm italic min-h-[4rem]">
-                          "{item.original}"
-                        </div>
-                      </div>
-                      
-                      <div>
-                        <label className="text-xs font-bold text-sky-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-sky-400"></span> Categoría a Guardar
-                        </label>
-                        <select 
-                          value={item.category}
-                          onChange={(e) => handleCategoryChange(item.id, e.target.value as any)}
-                          className="w-full bg-slate-950/80 border border-slate-700 rounded-xl p-3 text-slate-200 text-sm focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition-colors cursor-pointer"
-                        >
-                          <option value="tl">Pregunta Leve (tl)</option>
-                          <option value="tp">Pregunta Picante (tp)</option>
-                          <option value="dl">Reto Leve (dl)</option>
-                          <option value="dp">Reto Picante (dp)</option>
-                        </select>
-                      </div>
-                    </div>
-                    
-                    {/* Bloque Corregido */}
-                    <div className="flex flex-col">
-                      <label className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse"></span> Corregido por IA (Editable)
-                      </label>
-                      <textarea 
-                        className="w-full flex-grow bg-slate-950 border border-purple-500/30 rounded-xl p-4 text-white text-sm focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all resize-none min-h-[8rem] md:min-h-0"
-                        value={item.corrected}
-                        onChange={(e) => handleUpdateCorrected(item.id, e.target.value)}
-                      />
-                    </div>
-                  </div>
-                  
-                  {/* Botonera */}
-                  <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-slate-800 mt-2">
-                    <button 
-                      onClick={() => handleReject(item.id)}
-                      className="w-full sm:w-auto px-5 py-2.5 text-sm font-medium text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition-colors border border-transparent hover:border-red-400/20"
-                    >
-                      Descartar
-                    </button>
-                    <button 
-                      onClick={() => handleApprove(item.id)}
-                      disabled={isSavingId === item.id}
-                      className="w-full sm:w-auto px-6 py-2.5 text-sm font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 hover:border-emerald-500/40 rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 hover:-translate-y-0.5 active:translate-y-0"
-                    >
-                      {isSavingId === item.id ? (
-                        <svg className="animate-spin h-4 w-4 text-emerald-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                      ) : (
-                        <span>✅</span>
-                      )}
-                      {isSavingId === item.id ? "Guardando..." : "Aprobar y Guardar"}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+      <main className="relative z-10 max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
+        {activeTab === "ai" && <AIEntryForm userUid={user.uid} showModal={showModal} closeModal={closeModal} />}
+        {activeTab === "manual" && <ManualEntryForm userUid={user.uid} showModal={showModal} />}
+        {activeTab === "db" && <DataTable showModal={showModal} />}
       </main>
     </div>
   );
 }
-
