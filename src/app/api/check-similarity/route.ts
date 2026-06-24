@@ -19,7 +19,7 @@ export async function POST(req: Request) {
         collection(db, "questions"), 
         where("__name__", ">=", category + "_"), 
         where("__name__", "<=", category + "_\\uf8ff"),
-        orderBy("__name__", "desc"),
+        orderBy("__name__"),
         limit(1000)
       );
     } else {

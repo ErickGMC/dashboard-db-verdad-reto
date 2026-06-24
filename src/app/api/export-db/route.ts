@@ -17,7 +17,7 @@ export async function GET(req: Request) {
         collection(db, "questions"),
         where("__name__", ">=", category + "_"), 
         where("__name__", "<=", category + "_\\uf8ff"),
-        orderBy("__name__", "desc")
+        orderBy("__name__")
       );
       filename = `verdad_o_reto_db_${category}.json`;
     } else {
