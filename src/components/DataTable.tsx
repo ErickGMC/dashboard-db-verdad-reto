@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { collection, query, orderBy, limit, getDocs, startAfter, deleteDoc, doc, updateDoc, where } from "firebase/firestore";
+import { collection, query, orderBy, limit, getDocs, startAfter, deleteDoc, doc, updateDoc, where, getCountFromServer } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Database, Edit2, Trash2, ChevronLeft, ChevronRight, Loader2, CheckCircle2, X, LayoutGrid, List, Filter, Search, Download } from "lucide-react";
 
@@ -24,6 +24,9 @@ export default function DataTable({ showModal }: { showModal: any }) {
   const [viewMode, setViewMode] = useState<"table" | "grid">("grid");
   const [categoryFilter, setCategoryFilter] = useState<"all" | "tl" | "tp" | "dl" | "dp">("all");
   const [searchTerm, setSearchTerm] = useState("");
+
+  const [counts, setCounts] = useState({ total: 0, tl: 0, tp: 0, dl: 0, dp: 0 });
+  const [loadingCounts, setLoadingCounts] = useState(true);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ text: "", type: "", level: "" });
@@ -86,6 +89,36 @@ export default function DataTable({ showModal }: { showModal: any }) {
     fetchQuestions(null, categoryFilter);
   }, [categoryFilter]);
 
+  const fetchCounts = async () => {
+    try {
+      const qAll = query(collection(db, "questions"));
+      const snapAll = await getCountFromServer(qAll);
+      
+      const cats = ['tl', 'tp', 'dl', 'dp'];
+      const results = await Promise.all(cats.map(async (cat) => {
+        const q = query(collection(db, "questions"), where("__name__", ">=", cat + "_"), where("__name__", "<=", cat + "_\uf8ff"));
+        const snap = await getCountFromServer(q);
+        return { cat, count: snap.data().count };
+      }));
+      
+      setCounts({
+        total: snapAll.data().count,
+        tl: results.find(r => r.cat === 'tl')?.count || 0,
+        tp: results.find(r => r.cat === 'tp')?.count || 0,
+        dl: results.find(r => r.cat === 'dl')?.count || 0,
+        dp: results.find(r => r.cat === 'dp')?.count || 0,
+      });
+    } catch (e) {
+      console.error("Error fetching counts", e);
+    } finally {
+      setLoadingCounts(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchCounts();
+  }, []);
+
   // Asegurar que en móviles siempre se use "grid"
   useEffect(() => {
     const handleResize = () => {
@@ -118,6 +151,8 @@ export default function DataTable({ showModal }: { showModal: any }) {
     try {
       await deleteDoc(doc(db, "questions", docId));
       setQuestions(questions.filter(q => q._docId !== docId));
+      // Actualizar conteos después de eliminar
+      fetchCounts();
     } catch (e) {
       showModal("Error", "No se pudo eliminar", "error");
     }
@@ -163,7 +198,34 @@ export default function DataTable({ showModal }: { showModal: any }) {
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full lg:w-auto">
+        {/* Tarjetas de Estadísticas */}
+        <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 w-full lg:w-auto">
+          <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-2 flex flex-col items-center justify-center">
+            <span className="text-[10px] sm:text-xs text-slate-400 uppercase tracking-wider">Total</span>
+            <span className="text-base sm:text-xl font-bold text-white">{loadingCounts ? '...' : counts.total}</span>
+          </div>
+          <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-2 flex flex-col items-center justify-center">
+            <span className="text-[10px] sm:text-xs text-green-400 text-center uppercase tracking-wider">Verdad L.</span>
+            <span className="text-base sm:text-xl font-bold text-green-300">{loadingCounts ? '...' : counts.tl}</span>
+          </div>
+          <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-2 flex flex-col items-center justify-center">
+            <span className="text-[10px] sm:text-xs text-red-400 text-center uppercase tracking-wider">Verdad P.</span>
+            <span className="text-base sm:text-xl font-bold text-red-300">{loadingCounts ? '...' : counts.tp}</span>
+          </div>
+          <div className="bg-sky-500/10 border border-sky-500/20 rounded-xl p-2 flex flex-col items-center justify-center">
+            <span className="text-[10px] sm:text-xs text-sky-400 text-center uppercase tracking-wider">Reto L.</span>
+            <span className="text-base sm:text-xl font-bold text-sky-300">{loadingCounts ? '...' : counts.dl}</span>
+          </div>
+          <div className="bg-orange-500/10 border border-orange-500/20 rounded-xl p-2 flex flex-col items-center justify-center">
+            <span className="text-[10px] sm:text-xs text-orange-400 text-center uppercase tracking-wider">Reto P.</span>
+            <span className="text-base sm:text-xl font-bold text-orange-300">{loadingCounts ? '...' : counts.dp}</span>
+          </div>
+        </div>
+
+      </div>
+
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full justify-between">
           {/* Botón de Exportar */}
           <a
             href={`/api/export-db?category=${categoryFilter}`}
