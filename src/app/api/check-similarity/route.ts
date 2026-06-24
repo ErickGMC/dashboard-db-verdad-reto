@@ -1,21 +1,35 @@
 import { NextResponse } from 'next/server';
-import { collection, getDocs, query, where, limit } from "firebase/firestore";
+import { collection, getDocs, query, where, limit, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import stringSimilarity from 'string-similarity';
 
 export async function POST(req: Request) {
   try {
-    const { text } = await req.json();
+    const { text, category } = await req.json();
 
     if (!text || typeof text !== 'string') {
       return NextResponse.json({ error: 'Texto inválido.' }, { status: 400 });
     }
 
-    // O(1) query! Instead of downloading all documents to check vectors, we check exact string matches.
-    const q = query(
-      collection(db, "questions"), 
-      where("text", "==", text.trim()),
-      limit(1)
-    );
+    let q;
+    
+    // Si envían categoría, filtramos por las 1000 más recientes/relevantes de esa categoría
+    if (category) {
+      q = query(
+        collection(db, "questions"), 
+        where("__name__", ">=", category + "_"), 
+        where("__name__", "<=", category + "_\\uf8ff"),
+        orderBy("__name__", "desc"),
+        limit(1000)
+      );
+    } else {
+      // Fallback si no hay categoría (obtiene 1000 globales)
+      q = query(
+        collection(db, "questions"),
+        orderBy("createdAt", "desc"),
+        limit(1000)
+      );
+    }
     
     const snapshot = await getDocs(q);
     
@@ -23,8 +37,14 @@ export async function POST(req: Request) {
     let duplicateText = "";
 
     if (!snapshot.empty) {
-      highestSimilarity = 1.0; // 100% exact match
-      duplicateText = snapshot.docs[0].data().text;
+      const texts = snapshot.docs.map(doc => doc.data().text || "");
+      const validTexts = texts.filter(t => t.length > 0);
+      
+      if (validTexts.length > 0) {
+        const matches = stringSimilarity.findBestMatch(text.trim(), validTexts);
+        highestSimilarity = matches.bestMatch.rating;
+        duplicateText = matches.bestMatch.target;
+      }
     }
 
     return NextResponse.json({
@@ -34,6 +54,7 @@ export async function POST(req: Request) {
     });
 
   } catch (error: any) {
+    console.error("Similarity check error:", error);
     return NextResponse.json({ error: error.message || 'Error checking similarity' }, { status: 500 });
   }
 }

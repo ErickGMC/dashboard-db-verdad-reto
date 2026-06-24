@@ -34,15 +34,15 @@ export default function ManualEntryForm({ userUid, showModal }: ManualEntryFormP
       const simRes = await fetch("/api/check-similarity", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: text.trim() }),
+        body: JSON.stringify({ text: text.trim(), category }),
       });
       const simData = await simRes.json();
       
-      if (simData.highestSimilarity > 0.99) { // Coincidencia exacta
+      if (simData.highestSimilarity > 0.85) { // Similitud alta
         showModal(
-          "Pregunta Duplicada",
+          "Pregunta Duplicada o Muy Similar",
           <div className="text-sm">
-            <p>Esta pregunta ya existe en la base de datos exactamente igual.</p>
+            <p>Esta pregunta es muy similar ({(simData.highestSimilarity * 100).toFixed(1)}%) a otra en la base de datos.</p>
             <p className="mt-2 text-slate-300 italic">"{simData.duplicateText}"</p>
           </div>,
           "warning"

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { collection, query, orderBy, limit, getDocs, startAfter, deleteDoc, doc, updateDoc, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Database, Edit2, Trash2, ChevronLeft, ChevronRight, Loader2, CheckCircle2, X, LayoutGrid, List, Filter, Search } from "lucide-react";
+import { Database, Edit2, Trash2, ChevronLeft, ChevronRight, Loader2, CheckCircle2, X, LayoutGrid, List, Filter, Search, Download } from "lucide-react";
 
 interface QuestionData {
   _docId: string;
@@ -164,6 +164,17 @@ export default function DataTable({ showModal }: { showModal: any }) {
         </div>
 
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full lg:w-auto">
+          {/* Botón de Exportar */}
+          <a
+            href={`/api/export-db?category=${categoryFilter}`}
+            download={`verdad_o_reto_db${categoryFilter !== 'all' ? `_${categoryFilter}` : ''}.json`}
+            className="flex items-center justify-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm rounded-xl border border-slate-700/60 transition-colors whitespace-nowrap"
+            title="Descargar base de datos"
+          >
+            <Download className="w-4 h-4" />
+            <span className="hidden sm:inline">Exportar JSON</span>
+          </a>
+
           {/* Buscador Local */}
           <div className="relative flex-grow sm:flex-grow-0">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">

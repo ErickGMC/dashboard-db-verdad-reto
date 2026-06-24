@@ -109,7 +109,7 @@ export default function AIEntryForm({ userUid, showModal, closeModal }: AIEntryF
       const simRes = await fetch("/api/check-similarity", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: itemToApprove.corrected })
+        body: JSON.stringify({ text: itemToApprove.corrected, category: itemToApprove.category })
       });
       
       if (!simRes.ok) throw new Error("Error comprobando similitud en BD");
@@ -117,12 +117,12 @@ export default function AIEntryForm({ userUid, showModal, closeModal }: AIEntryF
 
       setIsSavingId(null);
 
-      if (highestSimilarity > 0.99) { // Coincidencia exacta
+      if (highestSimilarity > 0.85) { // Similitud alta (85%+)
         showModal(
           "Pregunta Descartada Automáticamente", 
           (
             <div className="flex flex-col gap-3">
-              <p className="text-slate-300">Se detectó que esta pregunta exacta ya existe en la base de datos.</p>
+              <p className="text-slate-300">Se detectó una pregunta muy similar ({(highestSimilarity * 100).toFixed(1)}%) en la base de datos.</p>
               <div className="bg-slate-950 border border-red-500/30 p-3 rounded-lg mt-2">
                 <p className="text-xs text-red-500 uppercase font-bold mb-1">Existente:</p>
                 <p className="text-slate-200 italic">"{duplicateText}"</p>
@@ -132,7 +132,6 @@ export default function AIEntryForm({ userUid, showModal, closeModal }: AIEntryF
         );
         setResults(prev => prev.filter(r => r.id !== id));
       } else {
-        // Al no usar embeddings, siempre será 0 si no es exacta.
         proceedToSave(id, itemToApprove);
       }
     } catch (err: any) {
