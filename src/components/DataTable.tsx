@@ -30,6 +30,8 @@ export default function DataTable({ showModal }: { showModal: any }) {
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ text: "", type: "", level: "" });
+  
+  const [isExporting, setIsExporting] = useState(false);
 
   const pageSize = 20;
 
@@ -183,6 +185,26 @@ export default function DataTable({ showModal }: { showModal: any }) {
     q.id?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      const res = await fetch(`/api/export-db?category=${categoryFilter}`);
+      if (!res.ok) throw new Error("Error en la descarga");
+      
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `verdad_o_reto_db${categoryFilter !== 'all' ? `_${categoryFilter}` : ''}.json`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      showModal("Error", "No se pudo exportar la base de datos. Intenta de nuevo.", "error");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <div className="bg-slate-900/50 backdrop-blur-xl border border-slate-800/60 rounded-3xl p-4 sm:p-8 shadow-2xl flex flex-col h-full animate-in fade-in slide-in-from-bottom-4 duration-500">
       
@@ -227,15 +249,15 @@ export default function DataTable({ showModal }: { showModal: any }) {
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full justify-between">
           {/* Botón de Exportar */}
-          <a
-            href={`/api/export-db?category=${categoryFilter}`}
-            download={`verdad_o_reto_db${categoryFilter !== 'all' ? `_${categoryFilter}` : ''}.json`}
-            className="flex items-center justify-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm rounded-xl border border-slate-700/60 transition-colors whitespace-nowrap"
+          <button
+            onClick={handleExport}
+            disabled={isExporting}
+            className="flex items-center justify-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm rounded-xl border border-slate-700/60 transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
             title="Descargar base de datos"
           >
-            <Download className="w-4 h-4" />
-            <span className="hidden sm:inline">Exportar JSON</span>
-          </a>
+            {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            <span className="hidden sm:inline">{isExporting ? "Exportando..." : "Exportar JSON"}</span>
+          </button>
 
           {/* Buscador Local */}
           <div className="relative flex-grow sm:flex-grow-0">

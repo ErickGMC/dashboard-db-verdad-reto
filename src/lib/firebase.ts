@@ -1,6 +1,6 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, initializeFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
 // Your web app's Firebase configuration
@@ -16,7 +16,21 @@ const firebaseConfig = {
 
 // Initialize Firebase (evita inicializarlo múltiples veces en Next.js)
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-const db = getFirestore(app);
+
+let db: ReturnType<typeof getFirestore>;
+if (typeof window === "undefined") {
+  try {
+    // Fuerzo long-polling en el servidor (Node.js) para evitar Memory Leaks por WebSockets
+    db = initializeFirestore(app, { experimentalForceLongPolling: true });
+  } catch (error) {
+    // Si ya estaba inicializado por HMR
+    db = getFirestore(app);
+  }
+} else {
+  // En cliente usa WebSockets normalmente
+  db = getFirestore(app);
+}
+
 const auth = getAuth(app);
 
 export { app, db, auth };
