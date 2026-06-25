@@ -69,7 +69,7 @@ export default function AIEntryForm({ userUid, showModal, closeModal }: AIEntryF
     }
   };
 
-  const proceedToSave = async (id: string, itemToApprove: ProcessedQuestion) => {
+  const proceedToSave = async (id: string, itemToApprove: ProcessedQuestion, embedding: number[]) => {
     try {
       setIsSavingId(id);
       const catPrefix = itemToApprove.category;
@@ -85,7 +85,7 @@ export default function AIEntryForm({ userUid, showModal, closeModal }: AIEntryF
         originalText: itemToApprove.original,
         type: categoryData.type,
         level: categoryData.level,
-        embedding: [], // Ya no generamos embeddings costosos
+        embedding: embedding || [], 
         createdAt: serverTimestamp(),
         createdBy: userUid,
       });
@@ -120,7 +120,7 @@ export default function AIEntryForm({ userUid, showModal, closeModal }: AIEntryF
       });
       
       if (!simRes.ok) throw new Error("Error comprobando similitud en BD");
-      const { highestSimilarity, duplicateText } = await simRes.json();
+      const { highestSimilarity, duplicateText, embedding } = await simRes.json();
 
       setIsSavingId(null);
 
@@ -139,7 +139,7 @@ export default function AIEntryForm({ userUid, showModal, closeModal }: AIEntryF
         );
         setResults(prev => prev.filter(r => r.id !== id));
       } else {
-        proceedToSave(id, itemToApprove);
+        proceedToSave(id, itemToApprove, embedding);
       }
     } catch (err: any) {
       setIsSavingId(null);

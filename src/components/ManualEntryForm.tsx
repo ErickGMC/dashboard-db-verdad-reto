@@ -36,64 +36,37 @@ export default function ManualEntryForm({ userUid, showModal }: ManualEntryFormP
     if (lines.length === 0) return;
 
     setIsSaving(true);
-    let savedCount = 0;
-    let skippedCount = 0;
-    let skippedExamples: string[] = [];
 
     try {
-      const categoryData = CATEGORY_MAP[category];
-
-      for (const line of lines) {
-        // 1. Verificación O(1) en el servidor por línea
-        const simRes = await fetch("/api/check-similarity", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: line, category }),
-        });
-        const simData = await simRes.json();
-        
-        if (simData.highestSimilarity > 0.85) { // Similitud alta (duplicado)
-          skippedCount++;
-          if (skippedExamples.length < 3) skippedExamples.push(line);
-          continue; // Saltamos a la siguiente línea
-        }
-
-        // 2. Guardado Rápido O(1) con ID Nativo Seguro
-        const tempRef = doc(collection(db, "questions"));
-        const secureId = `${category}_${tempRef.id}`;
-        
-        await setDoc(doc(db, "questions", secureId), {
-          id: secureId,
-          text: line,
-          originalText: line,
-          type: categoryData.type,
-          level: categoryData.level,
-          embedding: [], 
-          createdAt: serverTimestamp(),
-          createdBy: userUid,
-        });
-
-        savedCount++;
-      }
+      const res = await fetch("/api/batch-process", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lines, category, userUid }),
+      });
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Error en el procesamiento por lote");
 
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2500);
 
       const summaryMsg = (
         <div className="text-sm space-y-2">
-          <p>Se guardaron <span className="text-emerald-400 font-bold">{savedCount}</span> preguntas exitosamente.</p>
-          {skippedCount > 0 && (
+          <p>Se guardaron <span className="text-emerald-400 font-bold">{data.savedCount}</span> preguntas exitosamente.</p>
+          {data.skippedCount > 0 && (
             <>
-              <p className="text-orange-400">Se omitieron <span className="font-bold">{skippedCount}</span> por ser muy similares a las existentes.</p>
-              <div className="bg-slate-950 p-2 rounded border border-orange-500/20 text-xs italic text-slate-400">
-                Ej: "{skippedExamples[0]}"...
-              </div>
+              <p className="text-orange-400">Se omitieron <span className="font-bold">{data.skippedCount}</span> por ser muy similares a las existentes.</p>
+              {data.skippedExamples?.length > 0 && (
+                <div className="bg-slate-950 p-2 rounded border border-orange-500/20 text-xs italic text-slate-400">
+                  Ej: "{data.skippedExamples[0]}"...
+                </div>
+              )}
             </>
           )}
         </div>
       );
 
-      if (savedCount > 0) {
+      if (data.savedCount > 0) {
         showModal("¡Proceso Completado!", summaryMsg, "success");
         setText(""); // Limpiar text area tras éxito
       } else {

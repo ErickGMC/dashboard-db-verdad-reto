@@ -1,15 +1,36 @@
 import { NextResponse } from 'next/server';
 import { collection, getDocs, query, where, limit, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import stringSimilarity from 'string-similarity';
+import { GoogleGenAI } from '@google/genai';
+
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+interface CachedQuestion {
+  text: string;
+  embedding: number[];
+}
 
 // Caché global en memoria RAM del contenedor Node.js (Vercel)
 let globalCache: {
-  texts: { [category: string]: string[] };
+  questions: { [category: string]: CachedQuestion[] };
   timestamp: number;
-} = { texts: {}, timestamp: 0 };
+} = { questions: {}, timestamp: 0 };
 
 const CACHE_TTL = 1000 * 60 * 5; // 5 minutos
+
+function cosineSimilarity(v1: number[], v2: number[]) {
+  if (!v1 || !v2 || v1.length !== v2.length) return 0;
+  let dotProduct = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < v1.length; i++) {
+    dotProduct += v1[i] * v2[i];
+    normA += v1[i] * v1[i];
+    normB += v2[i] * v2[i];
+  }
+  if (normA === 0 || normB === 0) return 0;
+  return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+}
 
 export async function POST(req: Request) {
   try {
@@ -23,49 +44,78 @@ export async function POST(req: Request) {
     const now = Date.now();
 
     // Verificamos si la caché está expirada o vacía para esa categoría
-    if (now - globalCache.timestamp > CACHE_TTL || !globalCache.texts[catKey] || globalCache.texts[catKey].length === 0) {
+    if (now - globalCache.timestamp > CACHE_TTL || !globalCache.questions[catKey] || globalCache.questions[catKey].length === 0) {
       let q;
       
-      // Si envían categoría, filtramos por las 1000 más recientes/relevantes de esa categoría
+      // Si envían categoría, filtramos por las 1500 más recientes/relevantes de esa categoría
       if (category) {
         q = query(
           collection(db, "questions"), 
           where("__name__", ">=", category + "_"), 
           where("__name__", "<=", category + "_\\uf8ff"),
           orderBy("__name__"),
-          limit(1000)
+          limit(1500)
         );
       } else {
-        // Fallback si no hay categoría (obtiene 1000 globales)
+        // Fallback si no hay categoría (obtiene globales)
         q = query(
           collection(db, "questions"),
           orderBy("createdAt", "desc"),
-          limit(1000)
+          limit(1500)
         );
       }
       
       const snapshot = await getDocs(q);
-      const texts = snapshot.docs.map(doc => doc.data().text || "");
+      const cachedData: CachedQuestion[] = [];
+      
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        if (data.text && data.embedding && Array.isArray(data.embedding) && data.embedding.length > 0) {
+          cachedData.push({ text: data.text, embedding: data.embedding });
+        }
+      });
       
       // Actualizamos la caché
-      globalCache.texts[catKey] = texts.filter(t => t.length > 0);
+      globalCache.questions[catKey] = cachedData;
       globalCache.timestamp = now;
     }
 
-    const validTexts = globalCache.texts[catKey] || [];
+    const validQuestions = globalCache.questions[catKey] || [];
     let highestSimilarity = 0;
     let duplicateText = "";
+    let embedding: number[] = [];
 
-    if (validTexts.length > 0) {
-      const matches = stringSimilarity.findBestMatch(text.trim(), validTexts);
-      highestSimilarity = matches.bestMatch.rating;
-      duplicateText = matches.bestMatch.target;
+    // Generamos embedding de la nueva frase
+    let retries = 3;
+    while (retries > 0) {
+      try {
+        const response = await ai.models.embedContent({
+          model: 'text-embedding-004',
+          contents: text,
+        });
+        embedding = response.embeddings?.[0]?.values || [];
+        if (embedding.length > 0) break;
+      } catch (err) {
+        retries--;
+        if (retries === 0) throw new Error("Fallo al generar embedding en Gemini");
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+
+    if (validQuestions.length > 0 && embedding.length > 0) {
+      for (const q of validQuestions) {
+        const sim = cosineSimilarity(embedding, q.embedding);
+        if (sim > highestSimilarity) {
+          highestSimilarity = sim;
+          duplicateText = q.text;
+        }
+      }
     }
 
     return NextResponse.json({
       highestSimilarity,
       duplicateText,
-      maxCatNumber: -1 // Obsoleto, pero se mantiene por compatibilidad
+      embedding
     });
 
   } catch (error: any) {
