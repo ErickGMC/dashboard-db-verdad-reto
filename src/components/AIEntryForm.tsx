@@ -29,6 +29,7 @@ export default function AIEntryForm({ userUid, showModal, closeModal }: AIEntryF
   const [rawText, setRawText] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSavingId, setIsSavingId] = useState<string | null>(null);
+  const [successId, setSuccessId] = useState<string | null>(null);
   const [results, setResults] = useState<ProcessedQuestion[]>([]);
 
   const handleProcess = async () => {
@@ -89,12 +90,18 @@ export default function AIEntryForm({ userUid, showModal, closeModal }: AIEntryF
         createdBy: userUid,
       });
 
-      showModal("¡Idea Guardada!", "La pregunta fue guardada con éxito al instante.", "success");
-      setResults(prev => prev.filter(r => r.id !== id));
-    } catch (err: any) {
-      showModal("Error al Guardar", err.message, "error");
-    } finally {
       setIsSavingId(null);
+      setSuccessId(id);
+
+      // Esperar 1.5s para mostrar el feedback visual antes de quitar de la lista
+      setTimeout(() => {
+        setResults(prev => prev.filter(r => r.id !== id));
+        setSuccessId(null);
+      }, 1500);
+
+    } catch (err: any) {
+      setIsSavingId(null);
+      showModal("Error al Guardar", err.message, "error");
     }
   };
 
@@ -160,7 +167,7 @@ export default function AIEntryForm({ userUid, showModal, closeModal }: AIEntryF
         <button
           onClick={handleProcess}
           disabled={isProcessing || !rawText.trim()}
-          className="w-full py-3.5 px-4 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-semibold rounded-2xl shadow-lg shadow-purple-500/25 transform transition-all hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center gap-2"
+          className="w-full py-3.5 px-4 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-semibold rounded-2xl shadow-lg shadow-purple-500/25 transform transition-all hover:-translate-y-0.5 active:scale-95 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center gap-2"
         >
           {isProcessing ? (
             <span className="flex items-center gap-2">
@@ -235,11 +242,17 @@ export default function AIEntryForm({ userUid, showModal, closeModal }: AIEntryF
                   </button>
                   <button 
                     onClick={() => handleApprove(item.id)}
-                    disabled={isSavingId === item.id}
-                    className="w-full sm:w-auto px-6 py-2.5 text-sm font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 hover:border-emerald-500/40 rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 hover:-translate-y-0.5 active:translate-y-0"
+                    disabled={isSavingId === item.id || successId === item.id}
+                    className={`w-full sm:w-auto px-6 py-2.5 text-sm font-medium rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95 ${
+                      successId === item.id
+                        ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/50"
+                        : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 hover:border-emerald-500/40 hover:-translate-y-0.5"
+                    }`}
                   >
                     {isSavingId === item.id ? (
                       <><Loader2 className="w-4 h-4 animate-spin" /> Guardando...</>
+                    ) : successId === item.id ? (
+                      <><CheckCircle2 className="w-4 h-4" /> ¡Guardado!</>
                     ) : (
                       <><CheckCircle2 className="w-4 h-4" /> Aprobar y Guardar</>
                     )}
